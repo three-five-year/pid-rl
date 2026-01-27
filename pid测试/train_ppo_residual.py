@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
 import os
 from datetime import datetime
@@ -114,6 +114,18 @@ def train():
         gamma=config.get('gamma', 0.99)
     )
 
+    # 独立评估环境（用于保存最优模型）
+    eval_env = DummyVecEnv([make_env(config)])
+    eval_env = VecNormalize(
+        eval_env,
+        norm_obs=True,
+        norm_reward=False,
+        clip_obs=10.0,
+        clip_reward=10.0,
+        gamma=config.get('gamma', 0.99),
+        training=False
+    )
+
     # PPO模型
     policy_kwargs = dict(
         net_arch=dict(
@@ -143,6 +155,16 @@ def train():
 
     # 回调
     logger_callback = CompactLoggerCallback(log_freq=4000)
+    eval_callback = EvalCallback(
+        eval_env,
+        best_model_save_path=log_dir,
+        log_path=log_dir,
+        eval_freq=config.get('eval_freq', 20000),
+        n_eval_episodes=3,
+        deterministic=True,
+        render=False
+    )
+    callbacks = CallbackList([logger_callback, eval_callback])
 
     print("\n🔥 Training Start...")
     print("-" * 80)
@@ -151,7 +173,7 @@ def train():
 
     model.learn(
         total_timesteps=config['total_timesteps'],
-        callback=logger_callback,
+        callback=callbacks,
         progress_bar=False
     )
 
@@ -163,6 +185,7 @@ def train():
     print("\n" + "=" * 80)
     print("✅ Training Complete!")
     print(f"Model: {final_model_path}")
+    print(f"Best Model: {os.path.join(log_dir, 'best_model.zip')}")
     print("=" * 80)
 
     return model, env

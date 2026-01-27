@@ -22,7 +22,7 @@ class PPOConfigFixed:
     # 🔥 修复1: 调整奖励权重，限制单步奖励范围在[-10, +5]
     w_track_h: float = 3.0            # 水平跟踪权重
     w_track_v: float = 4.0            # 🔥 高度跟踪权重（单独控制）
-    w_safe: float = 3.0               # 安全权重
+    w_safe: float = 0.2               # 安全权重
     w_ctrl: float = 0.05              # 控制惩罚（降低）
     w_smooth: float = 0.1             # 平滑惩罚（降低）
 
@@ -86,7 +86,7 @@ TRAIN_CONFIG_FIXED = PPOConfigFixed(
     rl_threshold=120.0,
     w_track_h=3.0,
     w_track_v=4.0,  # 🔥 关键: 单独的高度权重
-    w_safe=3.0
+    w_safe=0.2
 )
 
 # 调试配置
