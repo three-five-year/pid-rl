@@ -436,12 +436,12 @@ class FormationEnvFixed(gym.Env):
         3. 使用clip而非tanh以避免梯度消失
         """
 
-        # 1. 水平跟踪奖励: 目标≤100ft
-        r_track_h_raw = -np.clip(avg_error_h / 100.0, 0.0, 1.0)
+        # 1. 水平跟踪奖励: 使用更柔和的归一化避免饱和
+        r_track_h_raw = -np.clip(avg_error_h / 300.0, 0.0, 1.0)
         r_track_h = r_track_h_raw * self.w_track_h
 
-        # 2. 高度跟踪奖励: 目标≤10ft
-        r_track_v_raw = -np.clip(avg_error_v / 10.0, 0.0, 1.0)
+        # 2. 高度跟踪奖励: 使用更柔和的归一化避免饱和
+        r_track_v_raw = -np.clip(avg_error_v / 30.0, 0.0, 1.0)
         r_track_v = r_track_v_raw * self.w_track_v
 
         # 3. 安全奖励: [-1, +0.2] × w_safe(2.0) = [-2, 0.4]
