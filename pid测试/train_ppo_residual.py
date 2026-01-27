@@ -21,6 +21,8 @@ class CompactLoggerCallback(BaseCallback):
 
         # 分别存储每个完整episode的数据
         self.episode_rewards = []
+        self.episode_avg_rewards = []
+        self.episode_lengths = []
         self.episode_track_errors = []
         self.episode_max_track_errors = []  # 🔥 新增: 最大误差
         self.episode_min_distances = []
@@ -32,7 +34,11 @@ class CompactLoggerCallback(BaseCallback):
         for info in infos:
             # 从Monitor提取episode奖励
             if 'episode' in info:
-                self.episode_rewards.append(info['episode']['r'])
+                ep_reward = info['episode']['r']
+                ep_length = info['episode'].get('l', 1)
+                self.episode_rewards.append(ep_reward)
+                self.episode_lengths.append(ep_length)
+                self.episode_avg_rewards.append(ep_reward / max(ep_length, 1))
 
             # 从environment的episode_stats提取其他指标
             if 'episode_stats' in info and info['episode_stats']:
@@ -47,7 +53,7 @@ class CompactLoggerCallback(BaseCallback):
         if self.n_calls % self.log_freq == 0 and len(self.episode_rewards) > 0:
             n_recent = min(10, len(self.episode_rewards))
 
-            avg_reward = np.mean(self.episode_rewards[-n_recent:])
+            avg_reward = np.mean(self.episode_avg_rewards[-n_recent:])
             avg_track_err = np.mean(self.episode_track_errors[-n_recent:]) if len(
                 self.episode_track_errors) >= n_recent else 0
             max_track_err = np.mean(self.episode_max_track_errors[-n_recent:]) if len(
@@ -58,7 +64,7 @@ class CompactLoggerCallback(BaseCallback):
                 self.episode_collisions) >= n_recent else 0
 
             print(f"Steps:{self.num_timesteps:>7} | "
-                  f"Reward:{avg_reward:>7.1f} | "
+                  f"AvgRwd:{avg_reward:>7.3f} | "
                   f"AvgErr:{avg_track_err:>5.0f}ft | "
                   f"MaxErr:{max_track_err:>5.0f}ft | "  # 🔥 显示最大误差
                   f"MinDist:{avg_min_dist:>5.0f}ft | "
@@ -140,7 +146,7 @@ def train():
 
     print("\n🔥 Training Start...")
     print("-" * 80)
-    print("Steps:   | Reward: | AvgErr: | MaxErr: | MinDist: | Collision:")
+    print("Steps:   | AvgRwd: | AvgErr: | MaxErr: | MinDist: | Collision:")
     print("-" * 80)
 
     model.learn(

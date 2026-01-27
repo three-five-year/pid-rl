@@ -34,6 +34,7 @@ class PPOVisualizer:
 
         # 加载环境配置
         config = TRAIN_CONFIG_FIXED.to_dict()
+        self.config = config
 
         # 创建环境
         env = DummyVecEnv([lambda: FormationEnvFixed(config)])
@@ -280,7 +281,13 @@ class PPOVisualizer:
             ax3.plot(history['time'], history['error_total'][i],
                      color=colors[i], label=labels[i], linewidth=1.5)
 
-        ax3.axhline(y=150, color='orange', linestyle='--', linewidth=1, label='RL Threshold')
+        ax3.axhline(
+            y=self.config.get('rl_threshold', 150.0),
+            color='orange',
+            linestyle='--',
+            linewidth=1,
+            label='RL Threshold'
+        )
         ax3.axvspan(20, 70, alpha=0.15, color='gray')
         ax3.set_xlabel('Time (s)')
         ax3.set_ylabel('Error (ft)')
@@ -313,7 +320,14 @@ class PPOVisualizer:
         ax5.axhspan(0, 100, alpha=0.3, color='red', label='Collision Zone (<100ft)')
         ax5.axhspan(100, 160, alpha=0.3, color='yellow', label='Danger Zone (100-160ft)')
         ax5.axhspan(160, 350, alpha=0.15, color='orange', label='Warning Zone (160-350ft)')
-        ax5.axhline(y=180, color='purple', linestyle='--', linewidth=1.5, label='Safety Margin (180ft)')
+        safety_margin = self.config.get('distance_safety_margin', 300.0)
+        ax5.axhline(
+            y=safety_margin,
+            color='purple',
+            linestyle='--',
+            linewidth=1.5,
+            label=f'Safety Margin ({safety_margin:.0f}ft)'
+        )
 
         ax5.set_xlabel('Time (s)')
         ax5.set_ylabel('Minimum Inter-Agent Distance (ft)')
