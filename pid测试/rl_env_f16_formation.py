@@ -28,7 +28,8 @@ class FormationEnvFixed(gym.Env):
         # 激活参数
         self.warmstart_steps = config.get('warmstart_steps', 1200)
         self.rl_threshold = config.get('rl_threshold', 150.0)
-        self.distance_safety_margin = config.get('distance_safety_margin', 180.0)
+        self.distance_safety_margin = config.get('distance_safety_margin', 300.0)
+        self.rl_activation_ramp_sec = config.get('rl_activation_ramp_sec', 5.0)
 
         # 🔥 修复1: 分离水平/高度权重
         self.w_track_h = config.get('w_track_h', 3.0)
@@ -44,7 +45,7 @@ class FormationEnvFixed(gym.Env):
 
         # 🔥 修复2: 增大电梯舵面限幅
         self.delta_throttle_limit = config.get('delta_throttle_limit', 0.03)
-        self.delta_elevator_limit = config.get('delta_elevator_limit', 5.0)
+        self.delta_elevator_limit = config.get('delta_elevator_limit', 6.0)
         self.delta_aileron_limit = config.get('delta_aileron_limit', 2.0)
         self.delta_rudder_limit = config.get('delta_rudder_limit', 2.0)
 
@@ -93,9 +94,11 @@ class FormationEnvFixed(gym.Env):
 
         self.planner = AdaptiveNegotiationTrajectory(
             N=self.N, adjacency_matrix=A, leader_access=leader_access,
-            formation_offsets=self.desired_offsets, k_gain=2.0,
+            formation_offsets=self.desired_offsets, k_gain=config.get('planner_gain', 3.0),
             sensing_radius=350.0, safety_radius=100.0
         )
+        self.planner_steps_turn = config.get('planner_steps_turn', 4)
+        self.planner_steps_straight = config.get('planner_steps_straight', 10)
 
         self.leader_start_pos = np.array([1000.0, 0.0, -5000.0])
         self.leader_velocity = 350.0
@@ -109,6 +112,7 @@ class FormationEnvFixed(gym.Env):
         self.turn_rate = 0.0
         self.prev_actions = np.zeros(self.N * 4)
         self.rl_active = False
+        self.rl_scale = 0.0
 
         # 🔥 修复4: 扩展统计变量，记录三类误差
         self.episode_stats = {
@@ -135,6 +139,7 @@ class FormationEnvFixed(gym.Env):
         self.turn_rate = 0.0
         self.prev_actions = np.zeros(self.N * 4)
         self.rl_active = False
+        self.rl_scale = 0.0
 
         # 重置统计
         self.episode_stats = {
@@ -198,11 +203,11 @@ class FormationEnvFixed(gym.Env):
 
         is_turning = abs(self.turn_rate) > 1e-3
         if is_turning:
-            for _ in range(3):
-                self.planner.step(self.leader_pos, self.leader_vel, self.dt / 3)
+            for _ in range(self.planner_steps_turn):
+                self.planner.step(self.leader_pos, self.leader_vel, self.dt / self.planner_steps_turn)
         else:
-            for _ in range(8):
-                self.planner.step(self.leader_pos, self.leader_vel, self.dt / 8)
+            for _ in range(self.planner_steps_straight):
+                self.planner.step(self.leader_pos, self.leader_vel, self.dt / self.planner_steps_straight)
 
         target_pos_all, target_vel_all = self.planner.get_target_trajectories()
 
@@ -256,22 +261,23 @@ class FormationEnvFixed(gym.Env):
             min_dist = 500.0
 
         # RL激活逻辑
-        self.rl_active = (
-                max_track_err > self.rl_threshold and
-                min_dist > self.distance_safety_margin
-        )
+        rl_ready = self.current_time >= (self.warmstart_steps * self.dt)
+        rl_triggered = max_track_err > self.rl_threshold
+        self.rl_active = rl_ready and rl_triggered
+        self.rl_scale = self._compute_rl_scale(min_dist)
+        self.rl_scale = self.rl_scale * self._compute_ramp_scale()
 
         # 解析动作
         action = np.clip(action, -1.0, 1.0)
         delta_u_all = np.zeros((self.N, 4))
 
-        if self.rl_active:
+        if self.rl_active and self.rl_scale > 0.0:
             for i in range(self.N):
                 delta_u_all[i] = np.array([
-                    action[i * 4 + 0] * self.delta_throttle_limit,
-                    action[i * 4 + 1] * self.delta_elevator_limit,
-                    action[i * 4 + 2] * self.delta_aileron_limit,
-                    action[i * 4 + 3] * self.delta_rudder_limit
+                    action[i * 4 + 0] * self.delta_throttle_limit * self.rl_scale,
+                    action[i * 4 + 1] * self.delta_elevator_limit * self.rl_scale,
+                    action[i * 4 + 2] * self.delta_aileron_limit * self.rl_scale,
+                    action[i * 4 + 3] * self.delta_rudder_limit * self.rl_scale
                 ])
 
         # 执行控制
@@ -300,7 +306,7 @@ class FormationEnvFixed(gym.Env):
 
         # 🔥 修复1: 新的奖励计算（分离水平/高度，限制范围）
         reward, reward_info = self._compute_reward_fixed(
-            avg_error_horizontal, avg_error_vertical, min_dist, action
+            avg_error_horizontal, avg_error_vertical, min_dist, action, self.rl_scale
         )
 
         # 终止条件
@@ -356,6 +362,7 @@ class FormationEnvFixed(gym.Env):
             'error_total': avg_error_total,
             'error_horizontal': avg_error_horizontal,
             'error_vertical': avg_error_vertical,
+            'rl_scale': self.rl_scale,
         }
 
         self.prev_actions = action.copy()
@@ -373,11 +380,11 @@ class FormationEnvFixed(gym.Env):
 
         is_turning = abs(self.turn_rate) > 1e-3
         if is_turning:
-            for _ in range(3):
-                self.planner.step(self.leader_pos, self.leader_vel, self.dt / 3)
+            for _ in range(self.planner_steps_turn):
+                self.planner.step(self.leader_pos, self.leader_vel, self.dt / self.planner_steps_turn)
         else:
-            for _ in range(8):
-                self.planner.step(self.leader_pos, self.leader_vel, self.dt / 8)
+            for _ in range(self.planner_steps_straight):
+                self.planner.step(self.leader_pos, self.leader_vel, self.dt / self.planner_steps_straight)
 
         target_pos_all, target_vel_all = self.planner.get_target_trajectories()
 
@@ -399,7 +406,29 @@ class FormationEnvFixed(gym.Env):
         obs = self._get_observation()
         return obs, 0.0, False, self.step_count >= self.max_steps, {'warmstart': True}
 
-    def _compute_reward_fixed(self, avg_error_h, avg_error_v, min_dist, action):
+    def _compute_rl_scale(self, min_dist: float) -> float:
+        """距离越近，RL介入越弱，避免突变."""
+        if min_dist >= self.distance_safety_margin:
+            return 1.0
+        if min_dist <= self.d_collision:
+            return 0.0
+        x = (min_dist - self.d_collision) / (self.distance_safety_margin - self.d_collision)
+        return 3 * x ** 2 - 2 * x ** 3
+
+    def _compute_ramp_scale(self) -> float:
+        """RL介入时间渐变，避免30s后突变."""
+        if self.rl_activation_ramp_sec <= 0:
+            return 1.0
+        ramp_start = self.warmstart_steps * self.dt
+        ramp_end = ramp_start + self.rl_activation_ramp_sec
+        if self.current_time <= ramp_start:
+            return 0.0
+        if self.current_time >= ramp_end:
+            return 1.0
+        x = (self.current_time - ramp_start) / self.rl_activation_ramp_sec
+        return 3 * x ** 2 - 2 * x ** 3
+
+    def _compute_reward_fixed(self, avg_error_h, avg_error_v, min_dist, action, rl_scale):
         """
         🔥 修复版奖励函数:
         1. 分离水平/高度误差
@@ -407,12 +436,12 @@ class FormationEnvFixed(gym.Env):
         3. 使用clip而非tanh以避免梯度消失
         """
 
-        # 1. 水平跟踪奖励: [-1, 0] × w_track_h(3.0) = [-3, 0]
-        r_track_h_raw = -np.clip(avg_error_h / 100.0, 0.0, 1.0)
+        # 1. 水平跟踪奖励: 使用更柔和的归一化避免饱和
+        r_track_h_raw = -np.clip(avg_error_h / 300.0, 0.0, 1.0)
         r_track_h = r_track_h_raw * self.w_track_h
 
-        # 2. 高度跟踪奖励: [-1, 0] × w_track_v(2.0) = [-2, 0]
-        r_track_v_raw = -np.clip(avg_error_v / 50.0, 0.0, 1.0)
+        # 2. 高度跟踪奖励: 使用更柔和的归一化避免饱和
+        r_track_v_raw = -np.clip(avg_error_v / 30.0, 0.0, 1.0)
         r_track_v = r_track_v_raw * self.w_track_v
 
         # 3. 安全奖励: [-1, +0.2] × w_safe(2.0) = [-2, 0.4]
@@ -431,7 +460,7 @@ class FormationEnvFixed(gym.Env):
         r_safe = np.clip(r_safe_raw, -1.0, 0.2) * self.w_safe
 
         # 4. 控制惩罚: [-1, 0] × w_ctrl(0.05) = [-0.05, 0]
-        if self.rl_active:
+        if self.rl_active and rl_scale > 0.0:
             action_norm = np.linalg.norm(action) / np.sqrt(self.N * 4)
             r_ctrl = -np.clip(action_norm, 0.0, 1.0) * self.w_ctrl
 
@@ -443,7 +472,7 @@ class FormationEnvFixed(gym.Env):
 
         # 5. Bonus: [0, 1.5]
         r_bonus = 0.0
-        if avg_error_h < 50.0 and avg_error_v < 25.0 and min_dist > 300.0:
+        if avg_error_h < 100.0 and avg_error_v < 10.0 and min_dist > 300.0:
             r_bonus += 0.5
         if self.step_count >= self.max_steps - 10 and min_dist > 200.0:
             r_bonus += 1.0
@@ -463,7 +492,8 @@ class FormationEnvFixed(gym.Env):
             'r_bonus': r_bonus,
             'avg_error_h': avg_error_h,
             'avg_error_v': avg_error_v,
-            'min_distance': min_dist
+            'min_distance': min_dist,
+            'rl_scale': rl_scale
         }
 
         return reward, reward_info
