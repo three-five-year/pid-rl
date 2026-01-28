@@ -449,11 +449,21 @@ class FormationEnvFixed(gym.Env):
         3. 保留安全/控制惩罚
         """
 
-        # 1. 水平跟踪奖励: 指数型引导奖励
-        r_track_h = self.w_track_h * (np.exp(-avg_error_h / 150.0) - 1.0)
+        # 1. 水平跟踪奖励: 分段渐进指数引导（目标 ≤ 80ft）
+        if avg_error_h <= 80.0:
+            r_track_h = self.w_track_h * (np.exp(-avg_error_h / 40.0) - 1.0)
+        elif avg_error_h <= 200.0:
+            r_track_h = self.w_track_h * (np.exp(-avg_error_h / 120.0) - 1.0)
+        else:
+            r_track_h = self.w_track_h * (np.exp(-avg_error_h / 220.0) - 1.0)
 
-        # 2. 高度跟踪奖励: 指数型引导奖励
-        r_track_v = self.w_track_v * (np.exp(-avg_error_v / 20.0) - 1.0)
+        # 2. 高度跟踪奖励: 分段渐进指数引导（目标 ≤ 10ft）
+        if avg_error_v <= 10.0:
+            r_track_v = self.w_track_v * (np.exp(-avg_error_v / 5.0) - 1.0)
+        elif avg_error_v <= 30.0:
+            r_track_v = self.w_track_v * (np.exp(-avg_error_v / 15.0) - 1.0)
+        else:
+            r_track_v = self.w_track_v * (np.exp(-avg_error_v / 30.0) - 1.0)
 
         # 3. 安全奖励: [-1, +0.2] × w_safe(2.0) = [-2, 0.4]
         if min_dist < self.d_collision:
