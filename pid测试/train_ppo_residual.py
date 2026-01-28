@@ -55,8 +55,8 @@ class CompactLoggerCallback(BaseCallback):
             stats = info.get('episode_stats', {}) or {}
             self.episode_count += 1
 
-            ep_reward = self.episode_rewards[-1] if self.episode_rewards else 0.0
-            ep_len = self.episode_lengths[-1] if self.episode_lengths else 1
+            ep_reward = info['episode'].get('r', 0.0)
+            ep_len = info['episode'].get('l', 1)
             avg_reward = ep_reward / max(ep_len, 1)
 
             avg_track_err = stats.get('avg_tracking_error', 0)
