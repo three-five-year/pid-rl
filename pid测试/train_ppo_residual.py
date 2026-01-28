@@ -144,6 +144,16 @@ def train():
     # 回调
     logger_callback = CompactLoggerCallback(log_freq=4000)
     eval_env = DummyVecEnv([make_env(config)])
+    eval_env = VecNormalize(
+        eval_env,
+        norm_obs=True,
+        norm_reward=False,
+        clip_obs=10.0,
+        clip_reward=20.0,
+        gamma=config.get('gamma', 0.99),
+        training=False
+    )
+    eval_env.obs_rms = env.obs_rms
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=log_dir,
