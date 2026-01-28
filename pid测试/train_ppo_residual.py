@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
 import os
 from datetime import datetime
@@ -21,6 +21,8 @@ class CompactLoggerCallback(BaseCallback):
 
         # 分别存储每个完整episode的数据
         self.episode_rewards = []
+        self.episode_avg_rewards = []
+        self.episode_lengths = []
         self.episode_track_errors = []
         self.episode_max_track_errors = []  # 🔥 新增: 最大误差
         self.episode_min_distances = []
@@ -32,7 +34,11 @@ class CompactLoggerCallback(BaseCallback):
         for info in infos:
             # 从Monitor提取episode奖励
             if 'episode' in info:
-                self.episode_rewards.append(info['episode']['r'])
+                ep_reward = info['episode']['r']
+                ep_length = info['episode'].get('l', 1)
+                self.episode_rewards.append(ep_reward)
+                self.episode_lengths.append(ep_length)
+                self.episode_avg_rewards.append(ep_reward / max(ep_length, 1))
 
             # 从environment的episode_stats提取其他指标
             if 'episode_stats' in info and info['episode_stats']:
@@ -47,7 +53,7 @@ class CompactLoggerCallback(BaseCallback):
         if self.n_calls % self.log_freq == 0 and len(self.episode_rewards) > 0:
             n_recent = min(10, len(self.episode_rewards))
 
-            avg_reward = np.mean(self.episode_rewards[-n_recent:])
+            avg_reward = np.mean(self.episode_avg_rewards[-n_recent:])
             avg_track_err = np.mean(self.episode_track_errors[-n_recent:]) if len(
                 self.episode_track_errors) >= n_recent else 0
             max_track_err = np.mean(self.episode_max_track_errors[-n_recent:]) if len(
@@ -58,7 +64,7 @@ class CompactLoggerCallback(BaseCallback):
                 self.episode_collisions) >= n_recent else 0
 
             print(f"Steps:{self.num_timesteps:>7} | "
-                  f"Reward:{avg_reward:>7.1f} | "
+                  f"AvgRwd:{avg_reward:>7.3f} | "
                   f"AvgErr:{avg_track_err:>5.0f}ft | "
                   f"MaxErr:{max_track_err:>5.0f}ft | "  # 🔥 显示最大误差
                   f"MinDist:{avg_min_dist:>5.0f}ft | "
@@ -104,7 +110,7 @@ def train():
         norm_obs=True,
         norm_reward=True,
         clip_obs=10.0,
-        clip_reward=10.0,
+        clip_reward=20.0,
         gamma=config.get('gamma', 0.99)
     )
 
@@ -120,14 +126,14 @@ def train():
     model = PPO(
         "MlpPolicy",
         env,
-        learning_rate=config.get('learning_rate', 3e-5),
+        learning_rate=config.get('learning_rate'),
         n_steps=config.get('n_steps', 4096),
         batch_size=config.get('batch_size', 128),
         n_epochs=config.get('n_epochs', 10),
         gamma=config.get('gamma', 0.99),
         gae_lambda=config.get('gae_lambda', 0.95),
         clip_range=config.get('clip_range', 0.1),
-        ent_coef=config.get('ent_coef', 0.01),
+        ent_coef=config.get('ent_coef'),
         vf_coef=config.get('vf_coef', 0.5),
         max_grad_norm=config.get('max_grad_norm', 0.5),
         policy_kwargs=policy_kwargs,
@@ -137,15 +143,36 @@ def train():
 
     # 回调
     logger_callback = CompactLoggerCallback(log_freq=4000)
+    eval_env = DummyVecEnv([make_env(config)])
+    eval_env = VecNormalize(
+        eval_env,
+        norm_obs=True,
+        norm_reward=False,
+        clip_obs=10.0,
+        clip_reward=20.0,
+        gamma=config.get('gamma', 0.99),
+        training=False
+    )
+    eval_env.obs_rms = env.obs_rms
+    eval_callback = EvalCallback(
+        eval_env,
+        best_model_save_path=log_dir,
+        log_path=log_dir,
+        eval_freq=config.get('eval_freq', 20000),
+        n_eval_episodes=3,
+        deterministic=True,
+        render=False
+    )
+    callbacks = CallbackList([logger_callback, eval_callback])
 
     print("\n🔥 Training Start...")
     print("-" * 80)
-    print("Steps:   | Reward: | AvgErr: | MaxErr: | MinDist: | Collision:")
+    print("Steps:   | AvgRwd: | AvgErr: | MaxErr: | MinDist: | Collision:")
     print("-" * 80)
 
     model.learn(
         total_timesteps=config['total_timesteps'],
-        callback=logger_callback,
+        callback=callbacks,
         progress_bar=False
     )
 
@@ -157,6 +184,7 @@ def train():
     print("\n" + "=" * 80)
     print("✅ Training Complete!")
     print(f"Model: {final_model_path}")
+    print(f"Best Model: {os.path.join(log_dir, 'best_model.zip')}")
     print("=" * 80)
 
     return model, env
