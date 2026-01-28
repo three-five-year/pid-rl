@@ -7,10 +7,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-from rl_env_f16_formation import FormationEnv
-from f16Model import F16
-from pid_tracker import PIDTracker
-from adaptive_negotiation_trajectory import AdaptiveNegotiationTrajectory
+from rl_env_f16_formation import FormationEnvFixed
+from config import TRAIN_CONFIG_FIXED
 
 
 class Evaluator:
@@ -21,19 +19,9 @@ class Evaluator:
         self.vec_normalize_path = vec_normalize_path
 
         # 加载模型
-        config = {
-            'num_agents': 4,
-            'dt': 0.05,
-            'max_steps': 2400,
-            'curriculum_stage': 2,
-            'w_track': 1.0,
-            'w_form': 0.5,
-            'w_safe': 2.0,
-            'w_ctrl': 0.01,
-            'w_smooth': 0.02,
-        }
+        config = TRAIN_CONFIG_FIXED.to_dict()
 
-        env = DummyVecEnv([lambda: FormationEnv(config)])
+        env = DummyVecEnv([lambda: FormationEnvFixed(config)])
 
         if vec_normalize_path:
             env = VecNormalize.load(vec_normalize_path, env)
@@ -61,6 +49,10 @@ class Evaluator:
         while not done:
             action, _ = self.model.predict(obs, deterministic=True)
             obs, reward, done, info = self.env.step(action)
+            if done[0] and len(info) > 0 and isinstance(info[0], dict):
+                terminal_obs = info[0].get('terminal_observation')
+                if terminal_obs is not None:
+                    obs = terminal_obs
 
             # 记录数据
             history['time'].append(t * 0.05)
