@@ -49,6 +49,10 @@ class Evaluator:
         while not done:
             action, _ = self.model.predict(obs, deterministic=True)
             obs, reward, done, info = self.env.step(action)
+            if done[0] and len(info) > 0 and isinstance(info[0], dict):
+                terminal_obs = info[0].get('terminal_observation')
+                if terminal_obs is not None:
+                    obs = terminal_obs
 
             # 记录数据
             history['time'].append(t * 0.05)

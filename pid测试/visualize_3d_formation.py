@@ -116,6 +116,10 @@ class PPOVisualizer:
 
             # 执行动作
             obs, reward, done, info = self.env.step(action)
+            if done[0] and len(info) > 0 and isinstance(info[0], dict):
+                terminal_obs = info[0].get('terminal_observation')
+                if terminal_obs is not None:
+                    obs = terminal_obs
 
             # 🔥 修复: 正确访问底层环境状态
             env_state = self.base_env

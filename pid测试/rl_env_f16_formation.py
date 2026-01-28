@@ -449,13 +449,11 @@ class FormationEnvFixed(gym.Env):
         3. 保留安全/控制惩罚
         """
 
-        # 1. 水平跟踪奖励: 使用平滑引导避免饱和
-        r_track_h = -self.w_track_h * (avg_error_h / (avg_error_h + 150.0))
-        r_track_h = np.clip(r_track_h, -self.w_track_h, 0.0)
+        # 1. 水平跟踪奖励: 指数型引导奖励
+        r_track_h = self.w_track_h * (np.exp(-avg_error_h / 150.0) - 1.0)
 
-        # 2. 高度跟踪奖励: 使用平滑引导避免饱和
-        r_track_v = -self.w_track_v * (avg_error_v / (avg_error_v + 20.0))
-        r_track_v = np.clip(r_track_v, -self.w_track_v, 0.0)
+        # 2. 高度跟踪奖励: 指数型引导奖励
+        r_track_v = self.w_track_v * (np.exp(-avg_error_v / 20.0) - 1.0)
 
         # 3. 安全奖励: [-1, +0.2] × w_safe(2.0) = [-2, 0.4]
         if min_dist < self.d_collision:

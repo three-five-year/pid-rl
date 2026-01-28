@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import BaseCallback, CallbackList
+from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
 import os
 from datetime import datetime
@@ -27,8 +27,6 @@ class CompactLoggerCallback(BaseCallback):
         self.episode_max_track_errors = []  # 🔥 新增: 最大误差
         self.episode_min_distances = []
         self.episode_collisions = []
-        self.best_avg_reward = -np.inf
-        self.best_model_path = None
 
     def _on_step(self) -> bool:
         # 收集完整episode的统计数据
@@ -71,10 +69,6 @@ class CompactLoggerCallback(BaseCallback):
                   f"MaxErr:{max_track_err:>5.0f}ft | "  # 🔥 显示最大误差
                   f"MinDist:{avg_min_dist:>5.0f}ft | "
                   f"Collision:{collision_rate * 100:>3.0f}%")
-            if self.best_model_path and avg_reward > self.best_avg_reward:
-                self.best_avg_reward = avg_reward
-                self.model.save(self.best_model_path)
-                print(f"✅ Best model updated (AvgRwd={avg_reward:.3f}) -> {self.best_model_path}")
 
         return True
 
@@ -149,8 +143,17 @@ def train():
 
     # 回调
     logger_callback = CompactLoggerCallback(log_freq=4000)
-    logger_callback.best_model_path = os.path.join(log_dir, "best_model.pth")
-    callbacks = CallbackList([logger_callback])
+    eval_env = DummyVecEnv([make_env(config)])
+    eval_callback = EvalCallback(
+        eval_env,
+        best_model_save_path=log_dir,
+        log_path=log_dir,
+        eval_freq=config.get('eval_freq', 20000),
+        n_eval_episodes=3,
+        deterministic=True,
+        render=False
+    )
+    callbacks = CallbackList([logger_callback, eval_callback])
 
     print("\n🔥 Training Start...")
     print("-" * 80)
@@ -171,7 +174,7 @@ def train():
     print("\n" + "=" * 80)
     print("✅ Training Complete!")
     print(f"Model: {final_model_path}")
-    print(f"Best Model: {os.path.join(log_dir, 'best_model.pth')}")
+    print(f"Best Model: {os.path.join(log_dir, 'best_model.zip')}")
     print("=" * 80)
 
     return model, env
