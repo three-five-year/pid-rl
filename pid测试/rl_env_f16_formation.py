@@ -12,7 +12,7 @@ from adaptive_negotiation_trajectory import AdaptiveNegotiationTrajectory
 class FormationEnvFixed(gym.Env):
     """
     完全修复版环境:
-    1. 奖励函数归一化，限制单步范围在[-10, +5]
+    1. 奖励函数以跟踪误差为主导，保持正负反馈
     2. 分离水平/高度误差，独立惩罚
     3. 初始条件与main.py完全一致
     4. 记录三类误差用于可视化
@@ -445,40 +445,43 @@ class FormationEnvFixed(gym.Env):
         """
         🔥 修复版奖励函数:
         1. 分离水平/高度误差
-        2. 使用平滑引导避免饱和
-        3. 保留安全/控制惩罚
+        2. 以跟踪误差为主导，误差越小奖励越高（有正有负）
+        3. 安全/控制惩罚仅作为辅助
         """
 
-        # 1. 水平跟踪奖励: 分段渐进指数引导（目标 ≤ 80ft）
-        if avg_error_h <= 80.0:
-            r_track_h = self.w_track_h * (np.exp(-avg_error_h / 40.0) - 1.0)
-        elif avg_error_h <= 200.0:
+        # 1. 水平跟踪奖励: 远距离线性惩罚，近距离指数引导（含正负反馈）
+        near_h_1 = 80.0
+        near_h_2 = 200.0
+        if avg_error_h <= near_h_1:
+            r_track_h = self.w_track_h * (np.exp(-avg_error_h / 40.0) - 0.5)
+        elif avg_error_h <= near_h_2:
             r_track_h = self.w_track_h * (np.exp(-avg_error_h / 120.0) - 1.0)
         else:
-            r_track_h = self.w_track_h * (np.exp(-avg_error_h / 220.0) - 1.0)
+            r_track_h = -self.w_track_h * (avg_error_h - near_h_2) / near_h_2
+        r_track_h = np.clip(r_track_h, -4.0 * self.w_track_h, self.w_track_h)
 
-        # 2. 高度跟踪奖励: 分段渐进指数引导（目标 ≤ 10ft）
-        if avg_error_v <= 10.0:
-            r_track_v = self.w_track_v * (np.exp(-avg_error_v / 5.0) - 1.0)
-        elif avg_error_v <= 30.0:
+        # 2. 高度跟踪奖励: 远距离线性惩罚，近距离指数引导（含正负反馈）
+        near_v_1 = 10.0
+        near_v_2 = 30.0
+        if avg_error_v <= near_v_1:
+            r_track_v = self.w_track_v * (np.exp(-avg_error_v / 5.0) - 0.5)
+        elif avg_error_v <= near_v_2:
             r_track_v = self.w_track_v * (np.exp(-avg_error_v / 15.0) - 1.0)
         else:
-            r_track_v = self.w_track_v * (np.exp(-avg_error_v / 30.0) - 1.0)
+            r_track_v = -self.w_track_v * (avg_error_v - near_v_2) / near_v_2
+        r_track_v = np.clip(r_track_v, -4.0 * self.w_track_v, self.w_track_v)
 
-        # 3. 安全奖励: [-1, +0.2] × w_safe(2.0) = [-2, 0.4]
+        # 3. 安全惩罚: 仅在危险范围内扣分（避免稀释跟踪目标）
         if min_dist < self.d_collision:
-            r_safe_raw = -1.0
+            r_safe = -1.0 * self.w_safe
         elif min_dist < self.d_danger:
             alpha = (min_dist - self.d_collision) / (self.d_danger - self.d_collision)
-            r_safe_raw = -1.0 + alpha * 0.5
+            r_safe = (-1.0 + alpha * 0.5) * self.w_safe
         elif min_dist < self.d_safe:
             alpha = (min_dist - self.d_danger) / (self.d_safe - self.d_danger)
-            r_safe_raw = -0.5 + alpha * 0.5
+            r_safe = (-0.5 + alpha * 0.5) * self.w_safe
         else:
-            bonus = min(1.0, (min_dist - self.d_safe) / 200.0)
-            r_safe_raw = bonus * 0.2
-
-        r_safe = np.clip(r_safe_raw, -1.0, 0.2) * self.w_safe
+            r_safe = 0.0
 
         # 4. 控制惩罚: [-1, 0] × w_ctrl(0.05) = [-0.05, 0]
         if self.rl_active and rl_scale > 0.0:
@@ -491,15 +494,8 @@ class FormationEnvFixed(gym.Env):
             r_ctrl = 0.0
             r_smooth = 0.0
 
-        # 5. Bonus: [0, 1.5]
-        r_bonus = 0.0
-        if avg_error_h < 100.0 and avg_error_v < 10.0 and min_dist > 300.0:
-            r_bonus += 0.5
-        if self.step_count >= self.max_steps - 10 and min_dist > 200.0:
-            r_bonus += 1.0
-
-        # 总奖励: 理论范围 [-7.05, 1.9]
-        reward = r_track_h + r_track_v + r_safe + r_ctrl + r_smooth + r_bonus
+        # 总奖励: 以跟踪误差为主，其他项仅作约束
+        reward = r_track_h + r_track_v + r_safe + r_ctrl + r_smooth
 
         reward_info = {
             'r_track_h': r_track_h,
@@ -507,7 +503,6 @@ class FormationEnvFixed(gym.Env):
             'r_safe': r_safe,
             'r_ctrl': r_ctrl,
             'r_smooth': r_smooth,
-            'r_bonus': r_bonus,
             'avg_error_h': avg_error_h,
             'avg_error_v': avg_error_v,
             'min_distance': min_dist,

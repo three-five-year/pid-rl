@@ -7,17 +7,16 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
 import os
-from datetime import datetime
 from rl_env_f16_formation import FormationEnvFixed
 from config import TRAIN_CONFIG_FIXED
 
 
 class CompactLoggerCallback(BaseCallback):
-    """紧凑型日志回调"""
+    """紧凑型日志回调（每个episode打印一次）"""
 
-    def __init__(self, log_freq=4000):
+    def __init__(self):
         super().__init__()
-        self.log_freq = log_freq
+        self.episode_count = 0
 
         # 分别存储每个完整episode的数据
         self.episode_rewards = []
@@ -49,26 +48,29 @@ class CompactLoggerCallback(BaseCallback):
                 self.episode_min_distances.append(stats.get('min_distance_ever', 0))
                 self.episode_collisions.append(1 if stats.get('collision') else 0)
 
-        # 每log_freq步打印
-        if self.n_calls % self.log_freq == 0 and len(self.episode_rewards) > 0:
-            n_recent = min(10, len(self.episode_rewards))
+        # 每个episode打印一次
+        for info in infos:
+            if 'episode' not in info:
+                continue
+            stats = info.get('episode_stats', {}) or {}
+            self.episode_count += 1
 
-            avg_reward = np.mean(self.episode_avg_rewards[-n_recent:])
-            avg_track_err = np.mean(self.episode_track_errors[-n_recent:]) if len(
-                self.episode_track_errors) >= n_recent else 0
-            max_track_err = np.mean(self.episode_max_track_errors[-n_recent:]) if len(
-                self.episode_max_track_errors) >= n_recent else 0
-            avg_min_dist = np.mean(self.episode_min_distances[-n_recent:]) if len(
-                self.episode_min_distances) >= n_recent else 0
-            collision_rate = np.mean(self.episode_collisions[-n_recent:]) if len(
-                self.episode_collisions) >= n_recent else 0
+            ep_reward = info['episode'].get('r', 0.0)
+            ep_len = info['episode'].get('l', 1)
+            avg_reward = ep_reward / max(ep_len, 1)
 
-            print(f"Steps:{self.num_timesteps:>7} | "
+            avg_track_err = stats.get('avg_tracking_error', 0)
+            max_track_err = stats.get('max_tracking_error', 0)
+            avg_min_dist = stats.get('min_distance_ever', 0)
+            collision_rate = 100.0 if stats.get('collision') else 0.0
+
+            print(f"Episode:{self.episode_count:>4} | "
+                  f"Steps:{self.num_timesteps:>7} | "
                   f"AvgRwd:{avg_reward:>7.3f} | "
                   f"AvgErr:{avg_track_err:>5.0f}ft | "
-                  f"MaxErr:{max_track_err:>5.0f}ft | "  # 🔥 显示最大误差
+                  f"MaxErr:{max_track_err:>5.0f}ft | "
                   f"MinDist:{avg_min_dist:>5.0f}ft | "
-                  f"Collision:{collision_rate * 100:>3.0f}%")
+                  f"Collision:{collision_rate:>3.0f}%")
 
         return True
 
@@ -86,8 +88,7 @@ def train():
     """修复版训练"""
     config = TRAIN_CONFIG_FIXED.to_dict()
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_dir = f"./logs/ppo_fixed_{timestamp}"
+    log_dir = "./logs/ppo_fixed"
     os.makedirs(log_dir, exist_ok=True)
 
     print("=" * 80)
@@ -146,7 +147,7 @@ def train():
     )
 
     # 回调
-    logger_callback = CompactLoggerCallback(log_freq=4000)
+    logger_callback = CompactLoggerCallback()
     eval_env = DummyVecEnv([make_env(config)])
     eval_env = VecNormalize(
         eval_env,
@@ -171,7 +172,7 @@ def train():
 
     print("\n🔥 Training Start...")
     print("-" * 80)
-    print("Steps:   | AvgRwd: | AvgErr: | MaxErr: | MinDist: | Collision:")
+    print("Episode: | Steps:   | AvgRwd: | AvgErr: | MaxErr: | MinDist: | Collision:")
     print("-" * 80)
 
     model.learn(
