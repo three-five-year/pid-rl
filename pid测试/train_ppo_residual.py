@@ -123,9 +123,13 @@ def train():
         activation_fn=torch.nn.Tanh
     )
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"✅ Using device: {device}")
+
     model = PPO(
         "MlpPolicy",
         env,
+        device=device,
         learning_rate=config.get('learning_rate'),
         n_steps=config.get('n_steps', 4096),
         batch_size=config.get('batch_size', 128),
