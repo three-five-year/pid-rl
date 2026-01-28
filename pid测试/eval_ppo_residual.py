@@ -179,9 +179,9 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, required=True,
+    parser.add_argument('--model', type=str, default='./logs/ppo_fixed/best_model.zip',
                         help='Path to trained PPO model')
-    parser.add_argument('--vec-normalize', type=str, default=None,
+    parser.add_argument('--vec-normalize', type=str, default='./logs/ppo_fixed/vec_normalize.pkl',
                         help='Path to VecNormalize stats')
     parser.add_argument('--episodes', type=int, default=5,
                         help='Number of evaluation episodes')

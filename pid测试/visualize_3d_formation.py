@@ -26,8 +26,8 @@ class PPOVisualizer:
     def __init__(self, model_path, vec_normalize_path=None):
         """
         Args:
-            model_path: 训练好的模型路径 (例如: "./logs/ppo_fixed_20260125/final_model")
-            vec_normalize_path: VecNormalize统计文件路径 (例如: "./logs/ppo_fixed_20260125/vec_normalize.pkl")
+            model_path: 训练好的模型路径 (例如: "./logs/ppo_fixed/best_model")
+            vec_normalize_path: VecNormalize统计文件路径 (例如: "./logs/ppo_fixed/vec_normalize.pkl")
         """
         self.model_path = model_path
         self.vec_normalize_path = vec_normalize_path
@@ -516,28 +516,15 @@ def main():
 
     # ==================== 配置路径 ====================
     # 请根据您的实际训练输出路径修改
-    MODEL_PATH = "./logs/ppo_fixed_20260125_120000/final_model"
-    VEC_NORMALIZE_PATH = "./logs/ppo_fixed_20260125_120000/vec_normalize.pkl"
+    LOG_DIR = "./logs/ppo_fixed"
+    MODEL_PATH = f"{LOG_DIR}/best_model"
+    VEC_NORMALIZE_PATH = f"{LOG_DIR}/vec_normalize.pkl"
 
     # 检查文件是否存在
     if not os.path.exists(MODEL_PATH + ".zip"):
         print(f"❌ Model not found: {MODEL_PATH}.zip")
         print("Please update MODEL_PATH in the script!")
-        print("\nSearching for recent models in ./logs/...")
-
-        # 尝试查找最新的模型
-        if os.path.exists("./logs"):
-            log_dirs = [d for d in os.listdir("./logs") if d.startswith("ppo_")]
-            if log_dirs:
-                latest_dir = sorted(log_dirs)[-1]
-                MODEL_PATH = f"./logs/{latest_dir}/final_model"
-                VEC_NORMALIZE_PATH = f"./logs/{latest_dir}/vec_normalize.pkl"
-                print(f"Found: {MODEL_PATH}")
-            else:
-                print("No ppo_* directories found in ./logs/")
-                return
-        else:
-            return
+        return
 
     # ==================== 创建可视化器 ====================
     visualizer = PPOVisualizer(
