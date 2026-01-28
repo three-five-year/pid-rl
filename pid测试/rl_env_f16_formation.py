@@ -449,16 +449,26 @@ class FormationEnvFixed(gym.Env):
         3. 安全/控制惩罚仅作为辅助
         """
 
-        # 1. 水平跟踪奖励: 以目标误差为尺度，二次惩罚大误差
-        target_h = 120.0
-        norm_h = avg_error_h / target_h
-        r_track_h = self.w_track_h * (1.0 - norm_h ** 2)
+        # 1. 水平跟踪奖励: 远距离线性惩罚，近距离指数引导（含正负反馈）
+        near_h_1 = 80.0
+        near_h_2 = 200.0
+        if avg_error_h <= near_h_1:
+            r_track_h = self.w_track_h * (np.exp(-avg_error_h / 40.0) - 0.5)
+        elif avg_error_h <= near_h_2:
+            r_track_h = self.w_track_h * (np.exp(-avg_error_h / 120.0) - 1.0)
+        else:
+            r_track_h = -self.w_track_h * (avg_error_h - near_h_2) / near_h_2
         r_track_h = np.clip(r_track_h, -4.0 * self.w_track_h, self.w_track_h)
 
-        # 2. 高度跟踪奖励: 以目标误差为尺度，二次惩罚大误差
-        target_v = 20.0
-        norm_v = avg_error_v / target_v
-        r_track_v = self.w_track_v * (1.0 - norm_v ** 2)
+        # 2. 高度跟踪奖励: 远距离线性惩罚，近距离指数引导（含正负反馈）
+        near_v_1 = 10.0
+        near_v_2 = 30.0
+        if avg_error_v <= near_v_1:
+            r_track_v = self.w_track_v * (np.exp(-avg_error_v / 5.0) - 0.5)
+        elif avg_error_v <= near_v_2:
+            r_track_v = self.w_track_v * (np.exp(-avg_error_v / 15.0) - 1.0)
+        else:
+            r_track_v = -self.w_track_v * (avg_error_v - near_v_2) / near_v_2
         r_track_v = np.clip(r_track_v, -4.0 * self.w_track_v, self.w_track_v)
 
         # 3. 安全惩罚: 仅在危险范围内扣分（避免稀释跟踪目标）
