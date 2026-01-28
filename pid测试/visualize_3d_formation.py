@@ -34,6 +34,7 @@ class PPOVisualizer:
 
         # 加载环境配置
         config = TRAIN_CONFIG_FIXED.to_dict()
+        self.config = config
 
         # 创建环境
         env = DummyVecEnv([lambda: FormationEnvFixed(config)])
@@ -115,6 +116,10 @@ class PPOVisualizer:
 
             # 执行动作
             obs, reward, done, info = self.env.step(action)
+            if done[0] and len(info) > 0 and isinstance(info[0], dict):
+                terminal_obs = info[0].get('terminal_observation')
+                if terminal_obs is not None:
+                    obs = terminal_obs
 
             # 🔥 修复: 正确访问底层环境状态
             env_state = self.base_env
@@ -231,6 +236,7 @@ class PPOVisualizer:
         5. 奖励分解
         6. RL激活状态
         """
+        history = self._trim_history(history)
         fig = plt.figure(figsize=(24, 14))
 
         colors = ['red', 'green', 'blue', 'orange']
@@ -280,7 +286,13 @@ class PPOVisualizer:
             ax3.plot(history['time'], history['error_total'][i],
                      color=colors[i], label=labels[i], linewidth=1.5)
 
-        ax3.axhline(y=150, color='orange', linestyle='--', linewidth=1, label='RL Threshold')
+        ax3.axhline(
+            y=self.config.get('rl_threshold', 150.0),
+            color='orange',
+            linestyle='--',
+            linewidth=1,
+            label='RL Threshold'
+        )
         ax3.axvspan(20, 70, alpha=0.15, color='gray')
         ax3.set_xlabel('Time (s)')
         ax3.set_ylabel('Error (ft)')
@@ -313,7 +325,14 @@ class PPOVisualizer:
         ax5.axhspan(0, 100, alpha=0.3, color='red', label='Collision Zone (<100ft)')
         ax5.axhspan(100, 160, alpha=0.3, color='yellow', label='Danger Zone (100-160ft)')
         ax5.axhspan(160, 350, alpha=0.15, color='orange', label='Warning Zone (160-350ft)')
-        ax5.axhline(y=180, color='purple', linestyle='--', linewidth=1.5, label='Safety Margin (180ft)')
+        safety_margin = self.config.get('distance_safety_margin', 300.0)
+        ax5.axhline(
+            y=safety_margin,
+            color='purple',
+            linestyle='--',
+            linewidth=1.5,
+            label=f'Safety Margin ({safety_margin:.0f}ft)'
+        )
 
         ax5.set_xlabel('Time (s)')
         ax5.set_ylabel('Minimum Inter-Agent Distance (ft)')
@@ -376,6 +395,7 @@ class PPOVisualizer:
 
         为每个Agent单独显示三类误差
         """
+        history = self._trim_history(history)
         fig, axes = plt.subplots(2, 2, figsize=(16, 10))
         axes = axes.flatten()
 
@@ -414,6 +434,7 @@ class PPOVisualizer:
         左图: 实际轨迹 vs 理想编队
         右图: 实际轨迹 vs 协商轨迹 vs 理想编队
         """
+        history = self._trim_history(history)
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
 
         colors = ['red', 'green', 'blue', 'orange']
@@ -470,6 +491,24 @@ class PPOVisualizer:
         plt.savefig(save_path, dpi=200, bbox_inches='tight')
         print(f"✅ Top-view comparison saved to '{save_path}'")
         plt.show()
+
+    @staticmethod
+    def _trim_history(history):
+        if not history.get('time'):
+            return history
+        n_steps = len(history['time'])
+        trimmed = {}
+        for key, value in history.items():
+            if isinstance(value, list):
+                if len(value) == n_steps + 1:
+                    trimmed[key] = value[:n_steps]
+                elif len(value) > n_steps:
+                    trimmed[key] = value[:n_steps]
+                else:
+                    trimmed[key] = value
+            else:
+                trimmed[key] = value
+        return trimmed
 
 
 def main():
