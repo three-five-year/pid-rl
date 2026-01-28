@@ -30,6 +30,18 @@ class PPOConfigFixed:
     euler_norm: float = np.pi
     pqr_norm: float = 5.0
 
+    # 观测归一化参数
+    euler_norm: float = np.pi
+    pqr_norm: float = 5.0
+
+    # 观测归一化参数
+    euler_norm: float = np.pi
+    pqr_norm: float = 5.0
+
+    # 观测归一化参数
+    euler_norm: float = np.pi
+    pqr_norm: float = 5.0
+
     # 安全参数
     d_collision: float = 100.0
     d_danger: float = 160.0
