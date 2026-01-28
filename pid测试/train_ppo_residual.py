@@ -110,20 +110,8 @@ def train():
         norm_obs=True,
         norm_reward=True,
         clip_obs=10.0,
-        clip_reward=10.0,
+        clip_reward=20.0,
         gamma=config.get('gamma', 0.99)
-    )
-
-    # 独立评估环境（用于保存最优模型）
-    eval_env = DummyVecEnv([make_env(config)])
-    eval_env = VecNormalize(
-        eval_env,
-        norm_obs=True,
-        norm_reward=False,
-        clip_obs=10.0,
-        clip_reward=10.0,
-        gamma=config.get('gamma', 0.99),
-        training=False
     )
 
     # PPO模型
@@ -138,14 +126,14 @@ def train():
     model = PPO(
         "MlpPolicy",
         env,
-        learning_rate=config.get('learning_rate', 3e-5),
+        learning_rate=config.get('learning_rate'),
         n_steps=config.get('n_steps', 4096),
         batch_size=config.get('batch_size', 128),
         n_epochs=config.get('n_epochs', 10),
         gamma=config.get('gamma', 0.99),
         gae_lambda=config.get('gae_lambda', 0.95),
         clip_range=config.get('clip_range', 0.1),
-        ent_coef=config.get('ent_coef', 0.01),
+        ent_coef=config.get('ent_coef'),
         vf_coef=config.get('vf_coef', 0.5),
         max_grad_norm=config.get('max_grad_norm', 0.5),
         policy_kwargs=policy_kwargs,
@@ -155,6 +143,7 @@ def train():
 
     # 回调
     logger_callback = CompactLoggerCallback(log_freq=4000)
+    eval_env = DummyVecEnv([make_env(config)])
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=log_dir,

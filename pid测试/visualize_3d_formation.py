@@ -116,6 +116,10 @@ class PPOVisualizer:
 
             # 执行动作
             obs, reward, done, info = self.env.step(action)
+            if done[0] and len(info) > 0 and isinstance(info[0], dict):
+                terminal_obs = info[0].get('terminal_observation')
+                if terminal_obs is not None:
+                    obs = terminal_obs
 
             # 🔥 修复: 正确访问底层环境状态
             env_state = self.base_env
@@ -232,6 +236,7 @@ class PPOVisualizer:
         5. 奖励分解
         6. RL激活状态
         """
+        history = self._trim_history(history)
         fig = plt.figure(figsize=(24, 14))
 
         colors = ['red', 'green', 'blue', 'orange']
@@ -390,6 +395,7 @@ class PPOVisualizer:
 
         为每个Agent单独显示三类误差
         """
+        history = self._trim_history(history)
         fig, axes = plt.subplots(2, 2, figsize=(16, 10))
         axes = axes.flatten()
 
@@ -428,6 +434,7 @@ class PPOVisualizer:
         左图: 实际轨迹 vs 理想编队
         右图: 实际轨迹 vs 协商轨迹 vs 理想编队
         """
+        history = self._trim_history(history)
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
 
         colors = ['red', 'green', 'blue', 'orange']
@@ -484,6 +491,24 @@ class PPOVisualizer:
         plt.savefig(save_path, dpi=200, bbox_inches='tight')
         print(f"✅ Top-view comparison saved to '{save_path}'")
         plt.show()
+
+    @staticmethod
+    def _trim_history(history):
+        if not history.get('time'):
+            return history
+        n_steps = len(history['time'])
+        trimmed = {}
+        for key, value in history.items():
+            if isinstance(value, list):
+                if len(value) == n_steps + 1:
+                    trimmed[key] = value[:n_steps]
+                elif len(value) > n_steps:
+                    trimmed[key] = value[:n_steps]
+                else:
+                    trimmed[key] = value
+            else:
+                trimmed[key] = value
+        return trimmed
 
 
 def main():

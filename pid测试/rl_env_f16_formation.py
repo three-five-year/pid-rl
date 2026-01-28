@@ -37,6 +37,8 @@ class FormationEnvFixed(gym.Env):
         self.w_safe = config.get('w_safe', 2.0)
         self.w_ctrl = config.get('w_ctrl', 0.05)
         self.w_smooth = config.get('w_smooth', 0.1)
+        self.euler_norm = config.get('euler_norm', np.pi)
+        self.pqr_norm = config.get('pqr_norm', 5.0)
 
         # 安全参数
         self.d_collision = 100.0
@@ -250,15 +252,7 @@ class FormationEnvFixed(gym.Env):
         max_track_err = max(error_tracking_list)
 
         # 🔥 修复: 正确计算最小距离
-        min_dist = float('inf')
-        for i in range(self.N):
-            for j in range(i + 1, self.N):
-                d = np.linalg.norm(current_positions[i] - current_positions[j])
-                if d > 1.0:
-                    min_dist = min(min_dist, d)
-
-        if min_dist == float('inf'):
-            min_dist = 500.0
+        min_dist = self._compute_min_distance(current_positions)
 
         # RL激活逻辑
         rl_ready = self.current_time >= (self.warmstart_steps * self.dt)
@@ -403,8 +397,27 @@ class FormationEnvFixed(gym.Env):
             )
             self.agents[i].step(u_pid)
 
+        current_positions = np.array([agent.position for agent in self.agents])
+        min_dist = self._compute_min_distance(current_positions)
+
         obs = self._get_observation()
-        return obs, 0.0, False, self.step_count >= self.max_steps, {'warmstart': True}
+        return obs, 0.0, False, self.step_count >= self.max_steps, {
+            'warmstart': True,
+            'min_distance': min_dist
+        }
+
+    @staticmethod
+    def _compute_min_distance(current_positions: np.ndarray) -> float:
+        min_dist = float('inf')
+        n = current_positions.shape[0]
+        for i in range(n):
+            for j in range(i + 1, n):
+                d = np.linalg.norm(current_positions[i] - current_positions[j])
+                if d > 1.0:
+                    min_dist = min(min_dist, d)
+        if min_dist == float('inf'):
+            return 500.0
+        return min_dist
 
     def _compute_rl_scale(self, min_dist: float) -> float:
         """距离越近，RL介入越弱，避免突变."""
@@ -432,17 +445,15 @@ class FormationEnvFixed(gym.Env):
         """
         🔥 修复版奖励函数:
         1. 分离水平/高度误差
-        2. 限制单步奖励范围在[-10, +5]
-        3. 使用clip而非tanh以避免梯度消失
+        2. 使用平滑引导避免饱和
+        3. 保留安全/控制惩罚
         """
 
-        # 1. 水平跟踪奖励: 使用更柔和的归一化避免饱和
-        r_track_h_raw = -np.clip(avg_error_h / 300.0, 0.0, 1.0)
-        r_track_h = r_track_h_raw * self.w_track_h
+        # 1. 水平跟踪奖励: 指数型引导奖励
+        r_track_h = self.w_track_h * (np.exp(-avg_error_h / 150.0) - 1.0)
 
-        # 2. 高度跟踪奖励: 使用更柔和的归一化避免饱和
-        r_track_v_raw = -np.clip(avg_error_v / 30.0, 0.0, 1.0)
-        r_track_v = r_track_v_raw * self.w_track_v
+        # 2. 高度跟踪奖励: 指数型引导奖励
+        r_track_v = self.w_track_v * (np.exp(-avg_error_v / 20.0) - 1.0)
 
         # 3. 安全奖励: [-1, +0.2] × w_safe(2.0) = [-2, 0.4]
         if min_dist < self.d_collision:
@@ -479,9 +490,6 @@ class FormationEnvFixed(gym.Env):
 
         # 总奖励: 理论范围 [-7.05, 1.9]
         reward = r_track_h + r_track_v + r_safe + r_ctrl + r_smooth + r_bonus
-
-        # 🔥 额外保护：clip到[-10, +5]
-        reward = np.clip(reward, -10.0, 5.0)
 
         reward_info = {
             'r_track_h': r_track_h,
@@ -572,8 +580,8 @@ class FormationEnvFixed(gym.Env):
                 e_p / 1000.0,
                 e_v / 100.0,
                 e_form / 500.0,
-                euler,
-                pqr,
+                euler / self.euler_norm,
+                pqr / self.pqr_norm,
                 [min_d / 1000.0],
                 [danger_flag],
                 [self.turn_rate]

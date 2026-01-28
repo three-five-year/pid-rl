@@ -19,12 +19,16 @@ class PPOConfigFixed:
     distance_safety_margin: float = 300.0  # 距离<300ft时缓慢削弱RL
     rl_activation_ramp_sec: float = 5.0  # RL介入渐变时间
 
-    # 🔥 修复1: 调整奖励权重，限制单步奖励范围在[-10, +5]
-    w_track_h: float = 3.0            # 水平跟踪权重
-    w_track_v: float = 4.0            # 🔥 高度跟踪权重（单独控制）
+    # 🔥 修复1: 调整奖励权重与尺度，增强平滑引导
+    w_track_h: float = 2.0            # 水平跟踪权重
+    w_track_v: float = 3.0            # 🔥 高度跟踪权重（单独控制）
     w_safe: float = 0.2               # 安全权重
     w_ctrl: float = 0.05              # 控制惩罚（降低）
     w_smooth: float = 0.1             # 平滑惩罚（降低）
+
+    # 观测归一化参数
+    euler_norm: float = np.pi
+    pqr_norm: float = 5.0
 
     # 安全参数
     d_collision: float = 100.0
@@ -53,14 +57,14 @@ class PPOConfigFixed:
         ])
 
     # PPO超参数
-    learning_rate: float = 3e-5
+    learning_rate: float = 1e-4
     n_steps: int = 4096
     batch_size: int = 128
     n_epochs: int = 10
     gamma: float = 0.99
     gae_lambda: float = 0.95
     clip_range: float = 0.1
-    ent_coef: float = 0.01
+    ent_coef: float = 0.02
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
 
@@ -84,8 +88,8 @@ TRAIN_CONFIG_FIXED = PPOConfigFixed(
     n_envs=8,
     warmstart_steps=600,
     rl_threshold=120.0,
-    w_track_h=3.0,
-    w_track_v=4.0,  # 🔥 关键: 单独的高度权重
+    w_track_h=2.0,
+    w_track_v=3.0,  # 🔥 关键: 单独的高度权重
     w_safe=0.2
 )
 
